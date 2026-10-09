@@ -45,6 +45,10 @@ func Test_findFirstQueryKey(t *testing.T) {
 		"a=20&%20%3F&=%23+%25%21%3C%3E%23%22%7B%7D%7C%5C%5E%5B%5D%60%E2%98%BA%09:%2F@$%27%28%29%2A%2C%3B&a=30",
 		"a=1& ?&=#+%!<>#\"{}|\\^[]`☺\t:/@$'()*,;&a=5",
 		"a=xxxxxxxxxxxxxxxx&b=YYYYYYYYYYYYYYY&c=ppppppppppppppppppp&f=ttttttttttttttttt&a=uuuuuuuuuuuuu",
+		"a;id=42&id=1",
+		"id=1;&id=42",
+		"foo=bar%3Bbaz",
+		"foo%3Bbar=baz",
 	}
 	for _, query := range tests {
 		t.Run(query, func(t *testing.T) {
@@ -60,6 +64,126 @@ func Test_findFirstQueryKey(t *testing.T) {
 						t.Errorf("findFirstQueryKey(%s,%s) = %v, want %v", query, key, got, want[0])
 					}
 				})
+			}
+		})
+	}
+}
+
+func Test_findFirstQueryKey_Semicolon(t *testing.T) {
+	tests := []struct {
+		name      string
+		rawQuery  string
+		key       string
+		wantValue string
+		wantOk    bool
+	}{
+		{
+			name:      "smuggled query parameter after semicolon ignored",
+			rawQuery:  "a;id=42&id=1",
+			key:       "id",
+			wantValue: "1",
+			wantOk:    true,
+		},
+		{
+			name:      "key preceding semicolon ignored",
+			rawQuery:  "a;id=42&id=1",
+			key:       "a",
+			wantValue: "",
+			wantOk:    false,
+		},
+		{
+			name:      "composite key with semicolon ignored",
+			rawQuery:  "a;id=42&id=1",
+			key:       "a;id",
+			wantValue: "",
+			wantOk:    false,
+		},
+		{
+			name:      "trailing semicolon invalidates preceding parameter",
+			rawQuery:  "id=1;&id=42",
+			key:       "id",
+			wantValue: "42",
+			wantOk:    true,
+		},
+		{
+			name:      "both pairs separated by semicolon invalidated",
+			rawQuery:  "a=1;b=2",
+			key:       "a",
+			wantValue: "",
+			wantOk:    false,
+		},
+		{
+			name:      "second key separated by semicolon invalidated",
+			rawQuery:  "a=1;b=2",
+			key:       "b",
+			wantValue: "",
+			wantOk:    false,
+		},
+		{
+			name:      "semicolon in value invalidates pair",
+			rawQuery:  "foo=bar;baz=qux",
+			key:       "foo",
+			wantValue: "",
+			wantOk:    false,
+		},
+		{
+			name:      "semicolon without value invalidates pair",
+			rawQuery:  "foo;bar&baz=qux",
+			key:       "baz",
+			wantValue: "qux",
+			wantOk:    true,
+		},
+		{
+			name:      "url-encoded semicolon preserved in value",
+			rawQuery:  "foo=bar%3Bbaz",
+			key:       "foo",
+			wantValue: "bar;baz",
+			wantOk:    true,
+		},
+		{
+			name:      "url-encoded semicolon preserved in key",
+			rawQuery:  "foo%3Bbar=baz",
+			key:       "foo;bar",
+			wantValue: "baz",
+			wantOk:    true,
+		},
+		{
+			name:      "standard ampersand separated pairs",
+			rawQuery:  "foo=bar&baz=qux",
+			key:       "foo",
+			wantValue: "bar",
+			wantOk:    true,
+		},
+		{
+			name:      "standard ampersand second pair",
+			rawQuery:  "foo=bar&baz=qux",
+			key:       "baz",
+			wantValue: "qux",
+			wantOk:    true,
+		},
+		{
+			name:      "semicolon pair between valid ampersand pairs",
+			rawQuery:  "foo=1&bar=2;bad=3&baz=4",
+			key:       "bar",
+			wantValue: "",
+			wantOk:    false,
+		},
+		{
+			name:      "valid pair after semicolon pair",
+			rawQuery:  "foo=1&bar=2;bad=3&baz=4",
+			key:       "baz",
+			wantValue: "4",
+			wantOk:    true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotValue, gotOk := findFirstQueryKey(tc.rawQuery, tc.key)
+			if gotOk != tc.wantOk {
+				t.Fatalf("findFirstQueryKey(%q, %q) ok = %v, want %v", tc.rawQuery, tc.key, gotOk, tc.wantOk)
+			}
+			if gotValue != tc.wantValue {
+				t.Errorf("findFirstQueryKey(%q, %q) value = %q, want %q", tc.rawQuery, tc.key, gotValue, tc.wantValue)
 			}
 		})
 	}

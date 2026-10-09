@@ -5,7 +5,6 @@
 package mux
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -255,33 +254,29 @@ func (r *routeRegexp) getURLQuery(req *http.Request) string {
 // findFirstQueryKey returns the same result as (*url.URL).Query()[key][0].
 // If key was not found, empty string and false is returned.
 func findFirstQueryKey(rawQuery, key string) (value string, ok bool) {
-	query := []byte(rawQuery)
-	for len(query) > 0 {
-		foundKey := query
-		if i := bytes.IndexAny(foundKey, "&;"); i >= 0 {
-			foundKey, query = foundKey[:i], foundKey[i+1:]
-		} else {
-			query = query[:0]
-		}
+	for len(rawQuery) > 0 {
+		var foundKey string
+		foundKey, rawQuery, _ = strings.Cut(rawQuery, "&")
 		if len(foundKey) == 0 {
 			continue
 		}
-		var value []byte
-		if i := bytes.IndexByte(foundKey, '='); i >= 0 {
-			foundKey, value = foundKey[:i], foundKey[i+1:]
+		if strings.Contains(foundKey, ";") {
+			continue
 		}
+		var val string
+		foundKey, val, _ = strings.Cut(foundKey, "=")
 		if len(foundKey) < len(key) {
 			// Cannot possibly be key.
 			continue
 		}
-		keyString, err := url.QueryUnescape(string(foundKey))
+		keyString, err := url.QueryUnescape(foundKey)
 		if err != nil {
 			continue
 		}
 		if keyString != key {
 			continue
 		}
-		valueString, err := url.QueryUnescape(string(value))
+		valueString, err := url.QueryUnescape(val)
 		if err != nil {
 			continue
 		}

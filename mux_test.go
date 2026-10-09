@@ -3239,3 +3239,97 @@ func newRequestHost(method, url, host string) *http.Request {
 	req.Host = host
 	return req
 }
+
+func TestQuerySemicolonSemantics(t *testing.T) {
+	t.Run("smuggled query parameter after semicolon ignored", func(t *testing.T) {
+		r := NewRouter()
+		var matchedVars map[string]string
+		r.HandleFunc("/delete", func(w http.ResponseWriter, req *http.Request) {
+			matchedVars = Vars(req)
+		}).Queries("id", "{id}")
+
+		req := httptest.NewRequest("DELETE", "http://localhost/delete?a;id=42&id=1", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if matchedVars == nil {
+			t.Fatal("route did not match")
+		}
+		if got := matchedVars["id"]; got != "1" {
+			t.Errorf("got id = %q, want %q", got, "1")
+		}
+		if httpQueryVal := req.URL.Query().Get("id"); httpQueryVal != matchedVars["id"] {
+			t.Errorf("parser differential: gorilla/mux got %q, net/http got %q", matchedVars["id"], httpQueryVal)
+		}
+	})
+
+	t.Run("trailing semicolon invalidates query parameter", func(t *testing.T) {
+		r := NewRouter()
+		var matchedVars map[string]string
+		r.HandleFunc("/delete", func(w http.ResponseWriter, req *http.Request) {
+			matchedVars = Vars(req)
+		}).Queries("id", "{id}")
+
+		req := httptest.NewRequest("DELETE", "http://localhost/delete?id=1;&id=42", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if matchedVars == nil {
+			t.Fatal("route did not match")
+		}
+		if got := matchedVars["id"]; got != "42" {
+			t.Errorf("got id = %q, want %q", got, "42")
+		}
+		if httpQueryVal := req.URL.Query().Get("id"); httpQueryVal != matchedVars["id"] {
+			t.Errorf("parser differential: gorilla/mux got %q, net/http got %q", matchedVars["id"], httpQueryVal)
+		}
+	})
+
+	t.Run("unencoded semicolon does not act as separator", func(t *testing.T) {
+		r := NewRouter()
+		r.HandleFunc("/api", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}).Queries("foo", "bar", "baz", "qux")
+
+		// Query with semicolon as separator should fail to match because semicolons are not separators
+		req := httptest.NewRequest("GET", "http://localhost/api?foo=bar;baz=qux", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("expected 404 Not Found, got %d", rec.Code)
+		}
+
+		// Query with standard ampersand separator should succeed
+		req2 := httptest.NewRequest("GET", "http://localhost/api?foo=bar&baz=qux", nil)
+		rec2 := httptest.NewRecorder()
+		r.ServeHTTP(rec2, req2)
+
+		if rec2.Code != http.StatusOK {
+			t.Errorf("expected 200 OK, got %d", rec2.Code)
+		}
+	})
+
+	t.Run("url-encoded semicolon allowed and unescaped", func(t *testing.T) {
+		r := NewRouter()
+		var matchedVars map[string]string
+		r.HandleFunc("/search", func(w http.ResponseWriter, req *http.Request) {
+			matchedVars = Vars(req)
+		}).Queries("tag", "{tag}")
+
+		req := httptest.NewRequest("GET", "http://localhost/search?tag=foo%3Bbar", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if matchedVars == nil {
+			t.Fatal("route did not match")
+		}
+		if got := matchedVars["tag"]; got != "foo;bar" {
+			t.Errorf("got tag = %q, want %q", got, "foo;bar")
+		}
+		if httpQueryVal := req.URL.Query().Get("tag"); httpQueryVal != matchedVars["tag"] {
+			t.Errorf("parser differential: gorilla/mux got %q, net/http got %q", matchedVars["tag"], httpQueryVal)
+		}
+	})
+}
+
